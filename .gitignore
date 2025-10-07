@@ -11,3 +11,9 @@ combinedAuctions.json
 !*.sql.gz
 decode_errors.log
 
+# Environment variables - DO NOT COMMIT
+.env
+.env.local
+.env*.local
+*.env
+

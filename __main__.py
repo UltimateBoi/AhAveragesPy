@@ -10,6 +10,7 @@ import aiohttp
 import asyncio
 import traceback
 from datetime import datetime
+import config  # Load configuration with environment variables
 
 DECODE_ERROR_LOG = 'decode_errors.log'
 
@@ -52,6 +53,14 @@ def decode_item_bytes(b, context=None):
 
 def main():
     print("Starting...")
+    # Validate configuration
+    try:
+        config.validate_config()
+        print(f"Using API URL: {config.HYPIXEL_API_URL}")
+    except ValueError as e:
+        print(f"Configuration error: {e}")
+        return
+    
     # 1. Load config
     with open('options.json') as f:
         options = json.load(f)
@@ -65,7 +74,13 @@ def main():
     print("Getting auctions...")
     async def fetch_auctions():
         async with aiohttp.ClientSession() as session:
-            async with session.get("https://api.hypixel.net/skyblock/auctions_ended") as response:
+            # Use API URL from environment variable configuration
+            api_url = config.HYPIXEL_API_URL
+            headers = {}
+            # Add API key to headers if configured
+            if config.HYPIXEL_API_KEY:
+                headers['API-Key'] = config.HYPIXEL_API_KEY
+            async with session.get(api_url, headers=headers) as response:
                 try:
                     return await response.json()
                 except Exception as e:

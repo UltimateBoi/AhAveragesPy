@@ -25,6 +25,9 @@ jobs:
           sudo apt-get update && sudo apt-get install -y sqlite3 gzip
 
       - name: Run main script
+        env:
+          HYPIXEL_API_URL: ${{ secrets.HYPIXEL_API_URL || 'https://api.hypixel.net/skyblock/auctions_ended' }}
+          HYPIXEL_API_KEY: ${{ secrets.HYPIXEL_API_KEY }}
         run: |
           python __main__.py
 
