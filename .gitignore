@@ -17,3 +17,10 @@ decode_errors.log
 .env*.local
 *.env
 
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+

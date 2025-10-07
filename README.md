@@ -6,6 +6,33 @@ Bad implemtation / conversion of my 2020 auction averages (which was made into a
 
 ### 90 unique BIN auctions that contain a buyer as of 13:59 07/10/2025 UTC since *roughly* beginning of March 2025
 
+## 🔐 Environment Variables & API Key Protection
+
+This repository now uses **environment variables** to securely manage API keys and configuration. API keys and sensitive data are **never committed** to the repository.
+
+### Quick Start for Local Development
+
+1. Copy the environment template:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` with your configuration (the file is already in `.gitignore`)
+
+3. Run the application:
+   ```bash
+   python __main__.py
+   ```
+
+### GitHub Actions (Production)
+
+For automated runs via GitHub Actions, environment variables are securely injected using **GitHub Secrets**:
+
+1. Go to repository **Settings** → **Secrets and variables** → **Actions**
+2. Add required secrets (see `ENVIRONMENT_SETUP.md` for details)
+
+**📖 Full Documentation:** See [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) for complete setup instructions, security best practices, and Firebase integration guide.
+
 ## Database Storage Change (Snapshots)
 Raw `*.db` files are no longer committed (they grew near / over GitHub's 100 MB limit). Instead compressed SQL dumps (`database.sql.gz`, `database2.sql.gz`) are stored. CI rebuilds the actual `.db` files for GitHub Pages deployment.
 
