@@ -85,8 +85,8 @@
         </div>
         <div id="tableContainer"></div>
         <div id="stats"></div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/sql-wasm.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js" integrity="sha512-BUo7Z1xXHDD236UMtYYV9zp1KimG++Hj6kUMlzUxr87hcPLZ9eczsQnUnxE27XGr0C+MEY0S8NxV+4CSkiqhDQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/sql-wasm.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
         <script>
             (async function() {
                 // Configure sql.js to get the WASM file from the CDN.
@@ -116,6 +116,9 @@
                     try {
                         if (dbFile.endsWith('.sql.gz')) {
                             // Fetch compressed SQL dump, gunzip, execute statements to reconstruct DB in-memory.
+                            if (typeof pako === 'undefined') {
+                                throw new Error('pako library not loaded. Please check your internet connection and ensure the CDN is accessible.');
+                            }
                             const res = await fetch(dbFile + '?_ts=' + Date.now());
                             if (!res.ok) throw new Error(`Fetch failed (${res.status})`);
                             const compressed = new Uint8Array(await res.arrayBuffer());
