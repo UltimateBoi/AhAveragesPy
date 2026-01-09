@@ -11,7 +11,6 @@ import asyncio
 import traceback
 from datetime import datetime
 import gzip
-import subprocess
 from pathlib import Path
 
 DECODE_ERROR_LOG = 'decode_errors.log'
@@ -44,15 +43,13 @@ def restore_database_from_gzip(db_name):
     if gz_path.exists() and not db_path.exists():
         try:
             print(f"Restoring {db_name} from {gz_path.name}...")
-            # Decompress and pipe to sqlite3
-            sql_bytes = gzip.decompress(gz_path.read_bytes())
-            # Use subprocess to restore the database
-            result = subprocess.run(
-                ['sqlite3', str(db_path)],
-                input=sql_bytes,
-                capture_output=True,
-                check=True
-            )
+            # Use streaming decompression for better memory efficiency
+            with gzip.open(gz_path, 'rt') as gz_file:
+                sql_script = gz_file.read()
+            # Use sqlite3 module for safer database restoration
+            conn = sqlite3.connect(str(db_path))
+            conn.executescript(sql_script)
+            conn.close()
             print(f"Successfully restored {db_name} from {gz_path.name}")
             return True
         except Exception as e:
