@@ -10,6 +10,9 @@ import aiohttp
 import asyncio
 import traceback
 from datetime import datetime
+import gzip
+import subprocess
+from pathlib import Path
 
 DECODE_ERROR_LOG = 'decode_errors.log'
 
@@ -32,6 +35,36 @@ def log_decode_error(context, exc):
     except Exception as log_exc:
         print(f"Logging failure (ignored): {log_exc}")
 
+def restore_database_from_gzip(db_name):
+    """Restore a database from its .sql.gz file if it exists and the .db doesn't."""
+    db_path = Path(db_name)
+    gz_path = db_path.with_suffix('.sql.gz')
+    
+    # Only restore if gzip exists and db doesn't exist
+    if gz_path.exists() and not db_path.exists():
+        try:
+            print(f"Restoring {db_name} from {gz_path.name}...")
+            # Decompress and pipe to sqlite3
+            sql_bytes = gzip.decompress(gz_path.read_bytes())
+            # Use subprocess to restore the database
+            result = subprocess.run(
+                ['sqlite3', str(db_path)],
+                input=sql_bytes,
+                capture_output=True,
+                check=True
+            )
+            print(f"Successfully restored {db_name} from {gz_path.name}")
+            return True
+        except Exception as e:
+            print(f"Warning: Failed to restore {db_name} from {gz_path.name}: {e}")
+            return False
+    elif db_path.exists():
+        print(f"{db_name} already exists, skipping restoration")
+        return True
+    else:
+        print(f"No backup found for {db_name}, will create fresh database")
+        return False
+
 def decode_item_bytes(b, context=None):
     """Decode base64 NBT item bytes into a Python structure; returns None if fails."""
     try:
@@ -52,7 +85,14 @@ def decode_item_bytes(b, context=None):
 
 def main():
     print("Starting...")
-    # 1. Load config
+    
+    # 1. Restore databases from gzip if they exist (before any operations)
+    print("\n=== Checking for existing database backups ===")
+    restore_database_from_gzip('database.db')
+    restore_database_from_gzip('database2.db')
+    print("=== Database restoration check complete ===\n")
+    
+    # 2. Load config
     with open('options.json') as f:
         options = json.load(f)
 
@@ -61,7 +101,7 @@ def main():
             return base64.b64encode(o).decode('ascii')
         return str(o)
 
-    # 2. Fetch auctions
+    # 3. Fetch auctions
     print("Getting auctions...")
     async def fetch_auctions():
         async with aiohttp.ClientSession() as session:
@@ -78,7 +118,7 @@ def main():
     auctions = data0.get('auctions', [])
     auctions = [x for x in auctions if x.get('bin') and x.get('buyer')]
 
-    # 3. Decode NBT
+    # 4. Decode NBT
     decoded = []
     failures = 0
     for x in auctions:
@@ -101,7 +141,7 @@ def main():
     except Exception as e:
         print("Error: Failed to write auctions.json: ", e)
 
-    # 4. Extract detail.i[0]
+    # 5. Extract detail.i[0]
     filtered = []
     missing_detail = 0
     for x in auctions:
@@ -114,7 +154,7 @@ def main():
         print(f"Warning: {missing_detail} decoded item(s) lacked expected structure (logged).")
     auctions = filtered
 
-    # 5. Build processed list
+    # 6. Build processed list
     processed = []
     for x in auctions:
         try:
@@ -144,7 +184,7 @@ def main():
             log_decode_error({'stage': 'process_record'}, e)
     auctions = processed
 
-    # 6. Create composite + base keys
+    # 7. Create composite + base keys
     for a in auctions:
         parts = []
         if a.get('ench2'):
@@ -171,7 +211,7 @@ def main():
         a['key'] = a.get('id', 'UNKNOWN') + '.' + '+'.join(parts)
         a['base_key'] = a.get('id')
 
-    # 7. Dump processed JSON snapshots
+    # 8. Dump processed JSON snapshots
     try:
         with open('auctions2.json', 'w') as f:
             json.dump(auctions, f, indent=4, default=json_default)
@@ -181,7 +221,7 @@ def main():
     with open('auctions3.json', 'w') as f:
         json.dump(auctions3, f, indent=4, default=json_default)
 
-    # 8. Insert legacy DB
+    # 9. Insert legacy DB
     sql = "INSERT INTO prices (timestamp, itemkey, price) VALUES (?, ?, ?)"
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
@@ -190,7 +230,7 @@ def main():
         cursor.execute(sql, (auction['timestamp'], auction['key'], auction['unitprice']))
     conn.commit(); cursor.close(); conn.close()
 
-    # 9. Insert new detailed DB
+    # 10. Insert new detailed DB
     conn2 = sqlite3.connect('database2.db')
     c2 = conn2.cursor()
     c2.execute("""
