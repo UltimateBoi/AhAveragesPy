@@ -35,7 +35,14 @@ def log_decode_error(context, exc):
         print(f"Logging failure (ignored): {log_exc}")
 
 def restore_database_from_gzip(db_name):
-    """Restore a database from its .sql.gz file if it exists and the .db doesn't."""
+    """Restore a database from its .sql.gz file if it exists and the .db doesn't.
+    
+    Args:
+        db_name: Name of the database file to restore (e.g., 'database.db')
+        
+    Returns:
+        True if database was restored or already exists, False if restoration failed
+    """
     db_path = Path(db_name)
     gz_path = db_path.with_suffix('.sql.gz')
     
