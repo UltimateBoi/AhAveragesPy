@@ -43,13 +43,12 @@ def restore_database_from_gzip(db_name):
     if gz_path.exists() and not db_path.exists():
         try:
             print(f"Restoring {db_name} from {gz_path.name}...")
-            # Use streaming decompression for better memory efficiency
+            # Decompress and read SQL script
             with gzip.open(gz_path, 'rt') as gz_file:
                 sql_script = gz_file.read()
-            # Use sqlite3 module for safer database restoration
-            conn = sqlite3.connect(str(db_path))
-            conn.executescript(sql_script)
-            conn.close()
+            # Use sqlite3 module with context manager for safe database restoration
+            with sqlite3.connect(str(db_path)) as conn:
+                conn.executescript(sql_script)
             print(f"Successfully restored {db_name} from {gz_path.name}")
             return True
         except Exception as e:
