@@ -10,4 +10,5 @@ combinedAuctions.json
 *.sqlite3
 !*.sql.gz
 decode_errors.log
-
+*.pyc
+/public
