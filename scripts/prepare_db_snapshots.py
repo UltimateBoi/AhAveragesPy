@@ -7,12 +7,14 @@ large binary SQLite files are not stored directly in git history (avoids the
 
 APPENDS snapshots to existing .sql.gz files to maintain complete history.
 Each snapshot is prefixed with JSON metadata and terminated with blank lines.
+Format: [JSON metadata]\\n[SQL dump]\\n\\n
 
 Restoration from latest snapshot:
-  gzip -dc database2.sql.gz | tail -1 | sqlite3 database2.db
-
-Restoration from complete history (all snapshots merged):
-  gzip -dc database2.sql.gz | sqlite3 database2.db
+  python3 -c "from scripts.prepare_db_snapshots import restore_latest; 
+              restore_latest('database.sql.gz', 'database.db')"
+  
+Or manually extract and skip JSON:
+  python3 scripts/prepare_db_snapshots.py --restore database.sql.gz database.db
 
 We do a LIGHT optimization (optional pruning hook, PRAGMA optimize, VACUUM).
 Add any domain‑specific row pruning inside prune_db() if desired.
@@ -109,7 +111,67 @@ def optimize_and_dump(db_path: Path):
         print(f"Unexpected error processing {db_path}: {e}", file=sys.stderr)
     return None
 
+def restore_latest(gz_path: str | Path, db_path: str | Path) -> bool:
+    """Extract the latest SQL snapshot from a .sql.gz file and restore to database.
+    
+    Handles both appended snapshots with JSON metadata and plain SQL dumps.
+    Returns True if successful, False otherwise.
+    """
+    gz_path = Path(gz_path)
+    db_path = Path(db_path)
+    
+    if not gz_path.exists():
+        print(f"Error: {gz_path} not found", file=sys.stderr)
+        return False
+    
+    try:
+        with gzip.open(gz_path, 'rt') as f:
+            content = f.read()
+        
+        lines = content.split('\n')
+        
+        # Find all JSON metadata lines (they start with '{')
+        json_line_indices = []
+        for i, line in enumerate(lines):
+            if line.strip().startswith('{'):
+                json_line_indices.append(i)
+        
+        if json_line_indices:
+            # File has appended snapshots with metadata
+            # Extract SQL from the last snapshot (after the last JSON line)
+            last_json_idx = json_line_indices[-1]
+            sql_lines = lines[last_json_idx + 1:]
+            sql_dump = '\n'.join(sql_lines)
+        else:
+            # Plain SQL format (no metadata)
+            sql_dump = content
+        
+        # Restore to database
+        con = sqlite3.connect(str(db_path))
+        con.executescript(sql_dump)
+        con.close()
+        
+        print(f"✓ Restored {db_path.name} from {gz_path.name}")
+        return True
+        
+    except Exception as e:
+        print(f"Error restoring {db_path}: {e}", file=sys.stderr)
+        return False
+
 def main() -> int:
+    # Check for restore command
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "--restore" and len(sys.argv) == 4:
+            gz_path = sys.argv[2]
+            db_path = sys.argv[3]
+            success = restore_latest(gz_path, db_path)
+            return 0 if success else 1
+        elif sys.argv[1] in ["-h", "--help"]:
+            print(f"Usage: {sys.argv[0]} [--restore <gz_file> <db_file>]")
+            print("  Create snapshots for all databases in ROOT directory")
+            print("  --restore: Restore database from latest snapshot in .sql.gz")
+            return 0
+    
     produced = []
     for name in DB_FILES:
         p = ROOT / name
