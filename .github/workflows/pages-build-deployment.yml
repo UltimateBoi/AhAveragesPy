@@ -26,9 +26,14 @@ jobs:
         run: |
           mkdir -p public
           cp index.html public/
-          # Rehydrate .db files from compressed SQL dumps if needed
-          if [ ! -f database.db ] && [ -f database.sql.gz ]; then gzip -dc database.sql.gz | sqlite3 database.db; fi
-          if [ ! -f database2.db ] && [ -f database2.sql.gz ]; then gzip -dc database2.sql.gz | sqlite3 database2.db; fi
+          # Rehydrate .db files from compressed SQL dumps using restoration utility
+          # This handles both appended snapshots with JSON metadata and plain SQL dumps
+          if [ ! -f database.db ] && [ -f database.sql.gz ]; then 
+            python3 scripts/prepare_db_snapshots.py --restore database.sql.gz database.db
+          fi
+          if [ ! -f database2.db ] && [ -f database2.sql.gz ]; then 
+            python3 scripts/prepare_db_snapshots.py --restore database2.sql.gz database2.db
+          fi
           if [ -f database.db ]; then cp database.db public/; fi
           if [ -f database2.db ]; then cp database2.db public/; fi
           # Also publish the compressed dumps themselves so the UI can fetch .sql.gz directly
