@@ -5,14 +5,20 @@ exist in the repository root. Intended to run inside CI before committing so
 large binary SQLite files are not stored directly in git history (avoids the
 100 MB hard limit and keeps diffs small).
 
-Restoration:
+APPENDS snapshots to existing .sql.gz files to maintain complete history.
+Each snapshot is prefixed with JSON metadata and terminated with blank lines.
+
+Restoration from latest snapshot:
+  gzip -dc database2.sql.gz | tail -1 | sqlite3 database2.db
+
+Restoration from complete history (all snapshots merged):
   gzip -dc database2.sql.gz | sqlite3 database2.db
 
 We do a LIGHT optimization (optional pruning hook, PRAGMA optimize, VACUUM).
 Add any domain‑specific row pruning inside prune_db() if desired.
 """
 from __future__ import annotations
-import gzip, os, sqlite3, subprocess, sys
+import gzip, os, sqlite3, subprocess, sys, json, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,6 +41,11 @@ def prune_db(db_path: Path) -> None:
     pass
 
 def optimize_and_dump(db_path: Path):
+    """Optimize database and create/append SQL dump to .sql.gz file.
+    
+    Appends the dump to existing .sql.gz file with metadata separator.
+    Format: [JSON metadata]\\n[SQL dump]\\n\\n
+    """
     if not db_path.exists():
         return None
     dump_path = db_path.with_suffix(".sql.gz")
@@ -61,19 +72,36 @@ def optimize_and_dump(db_path: Path):
             except Exception:
                 pass
         con.close()
+        
+        # Get dump from sqlite3
         dump_bytes = subprocess.check_output(["sqlite3", str(db_path), ".dump"], text=False)
-        # Write gzip (some older Python versions lack mtime parameter); try with mtime then fallback.
+        orig = db_path.stat().st_size
+        
+        # Create metadata header (JSON on single line for easy parsing)
+        metadata = {
+            "timestamp": int(time.time()),
+            "source": str(db_path),
+            "size_before_optimization": orig
+        }
+        metadata_line = json.dumps(metadata, separators=(',', ':')) + '\n'
+        metadata_bytes = metadata_line.encode('utf-8')
+        
+        # Combine metadata + dump
+        combined_bytes = metadata_bytes + dump_bytes + b'\n\n'
+        
+        # Append to existing .sql.gz or create new
         try:
-            with gzip.GzipFile(filename=str(dump_path), mode="wb", compresslevel=9, mtime=0) as gz:
-                gz.write(dump_bytes)
+            with gzip.GzipFile(filename=str(dump_path), mode="ab", compresslevel=9, mtime=0) as gz:
+                gz.write(combined_bytes)
         except TypeError:
             # Fallback without mtime for older interpreters
-            with gzip.GzipFile(filename=str(dump_path), mode="wb", compresslevel=9) as gz:
-                gz.write(dump_bytes)
-        orig = db_path.stat().st_size
+            with gzip.GzipFile(filename=str(dump_path), mode="ab", compresslevel=9) as gz:
+                gz.write(combined_bytes)
+        
         comp = dump_path.stat().st_size
         ratio = (1 - comp / orig) * 100 if orig else 0
-        print(f"Snapshot {db_path.name}: {human(orig)} -> {human(comp)} ({ratio:.1f}% smaller) -> {dump_path.name}")
+        action = "Updated" if comp > len(combined_bytes) else "Created"
+        print(f"{action} {dump_path.name}: {human(orig)} original -> {human(comp)} total (latest {ratio:.1f}% smaller)")
         return dump_path
     except subprocess.CalledProcessError as e:
         print(f"Error dumping {db_path}: {e}", file=sys.stderr)
@@ -91,14 +119,9 @@ def main() -> int:
     if not produced:
         print("No databases found to snapshot.")
         return 0
-    for name in DB_FILES:
-        p = ROOT / name
-        if p.exists():
-            try:
-                os.remove(p)
-                print(f"Removed raw DB {p.name} (kept compressed dump).")
-            except Exception as e:
-                print(f"Warning: could not remove {p}: {e}")
+    # Keep raw DB files for the next run; snapshots are appended to .sql.gz
+    print(f"Successfully created/updated {len(produced)} snapshot(s).")
+    print("Raw DB files retained for next run (snapshots append to .sql.gz files).")
     return 0
 
 if __name__ == "__main__":
