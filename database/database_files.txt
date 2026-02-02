@@ -1,2 +1,0 @@
-database.sql.gz
-database_files.txt
