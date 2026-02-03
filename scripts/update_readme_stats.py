@@ -16,13 +16,23 @@ from datetime import datetime, timezone
 
 ROOT = Path(__file__).resolve().parent.parent
 README_PATH = ROOT / 'README.md'
-DUMPS = [ROOT / 'database2.sql.gz', ROOT / 'database.sql.gz']
+DUMPS = [ROOT / 'database.sql.gz', ROOT / 'database2.sql.gz']
 
 def load_dump(dump: Path) -> sqlite3.Connection:
     sql_bytes = gzip.decompress(dump.read_bytes())
     text = sql_bytes.decode('utf-8', errors='replace')
+    
+    # Skip JSON metadata if present (new format has {"timestamp": ... }\n at the start)
+    lines = text.split('\n')
+    sql_text = text
+    for i, line in enumerate(lines):
+        if line.strip().startswith('{'):
+            # Found metadata, SQL starts after this line
+            sql_text = '\n'.join(lines[i+1:])
+            break
+    
     con = sqlite3.connect(':memory:')
-    con.executescript(text)
+    con.executescript(sql_text)
     return con
 
 def obtain_count(con: sqlite3.Connection) -> int:
