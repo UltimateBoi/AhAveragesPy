@@ -129,24 +129,45 @@
                                 throw new Error('Decompression failed: ' + decompErr.message);
                             }
                             db = new SQL.Database();
-                            try {
-                                db.run('BEGIN;');
-                                db.run(sqlText);
-                                db.run('COMMIT;');
-                            } catch (execErr) {
-                                // Attempt fallback: split into statements (simple splitter) if bulk run failed.
-                                try {
-                                    db.run('ROLLBACK;');
-                                } catch {}
-                                const statements = sqlText.split(/;\s*(?:\n|$)/).map(s=>s.trim()).filter(s=>s && !s.startsWith('--'));
-                                db = new SQL.Database();
-                                db.run('BEGIN;');
-                                for (const st of statements) {
-                                    if (/^(BEGIN|COMMIT|ROLLBACK)/i.test(st)) continue;
-                                    try { db.run(st + ';'); } catch (singleErr) { console.warn('Stmt failed', st.slice(0,120)+'...', singleErr); }
+                            
+                            // Iterate statements using regex to avoid creating a massive array (OOM prevention)
+                            // and execute in batches to avoid locking the UI or overflowing WASM stack.
+                            const stmtEndRegex = /;\s*(?:\n|$)/g;
+                            let match;
+                            let lastIndex = 0;
+                            let count = 0;
+                            
+                            db.run('BEGIN TRANSACTION;');
+                            while ((match = stmtEndRegex.exec(sqlText)) !== null) {
+                                const stmt = sqlText.substring(lastIndex, match.index + 1).trim();
+                                lastIndex = match.index + match[0].length;
+                                
+                                if (!stmt) continue;
+                                if (stmt.startsWith('--')) continue; 
+                                if (stmt.startsWith('{')) continue; // Skip JSON metadata lines
+                                
+                                // Skip transaction/pragma control from the dump to manage our own batches
+                                if (/^(BEGIN|COMMIT|ROLLBACK|PRAGMA)/i.test(stmt)) continue;
+
+                                try { 
+                                    db.run(stmt); 
+                                } catch (e) { 
+                                    console.warn('Statement failed:', stmt.substring(0, 50) + '...', e); 
                                 }
-                                db.run('COMMIT;');
+
+                                count++;
+                                // Commit every 2000 statements to manage memory/speed
+                                if (count % 2000 === 0) {
+                                    db.run('COMMIT;');
+                                    db.run('BEGIN TRANSACTION;');
+                                    // Yield to UI thread periodically to prevent freeze
+                                    if (count % 10000 === 0) {
+                                        statusEl.textContent = `Loading ${dbFile} (${Math.floor(lastIndex/1024/1024)}MB processed)...`;
+                                        await new Promise(r => setTimeout(r, 0));
+                                    }
+                                }
                             }
+                            db.run('COMMIT;');
                         } else if (dbFile.endsWith('.db')) {
                             const response = await fetch(dbFile + '?_ts=' + Date.now());
                             if (!response.ok) throw new Error(`Fetch failed (${response.status})`);
