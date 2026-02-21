@@ -11,7 +11,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -43,6 +45,7 @@ jobs:
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git lfs install
           git add *.sql.gz index.html scripts/prepare_db_snapshots.py scripts/update_readme_stats.py README.md .gitignore || true
           if git diff --cached --quiet; then
             echo "No database changes to commit."
