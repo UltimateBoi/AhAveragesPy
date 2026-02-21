@@ -21,16 +21,19 @@ DUMPS = [ROOT / 'database.sql.gz', ROOT / 'database2.sql.gz']
 def load_dump(dump: Path) -> sqlite3.Connection:
     sql_bytes = gzip.decompress(dump.read_bytes())
     text = sql_bytes.decode('utf-8', errors='replace')
-    
-    # Skip JSON metadata if present (new format has {"timestamp": ... }\n at the start)
+
+    # Strip all JSON metadata lines (merged dumps contain one per snapshot)
     lines = text.split('\n')
-    sql_text = text
-    for i, line in enumerate(lines):
-        if line.strip().startswith('{'):
-            # Found metadata, SQL starts after this line
-            sql_text = '\n'.join(lines[i+1:])
-            break
-    
+    sql_lines = [line for line in lines if not line.strip().startswith('{')]
+
+    # Normalize bare CREATE TABLE to IF NOT EXISTS so duplicate snapshots don't fail
+    normalized = []
+    for line in sql_lines:
+        if 'CREATE TABLE ' in line and 'IF NOT EXISTS' not in line:
+            line = line.replace('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ', 1)
+        normalized.append(line)
+    sql_text = '\n'.join(normalized)
+
     con = sqlite3.connect(':memory:')
     con.executescript(sql_text)
     return con
